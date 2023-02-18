@@ -55,7 +55,8 @@ ENV IB_GATEWAY_VERSION=10.19.1j
 WORKDIR /root
 
 # Prepare system
-RUN apt-get update -y
+RUN apt-get update -y &&  DEBIAN_FRONTEND=noninteractive apt-get install -y tzdata
+
 RUN apt-get install --no-install-recommends --yes \
   gettext \
   xvfb \
@@ -65,7 +66,14 @@ RUN apt-get install --no-install-recommends --yes \
   libxi6 \
   libgtk2.0-bin \
   socat \
-  x11vnc
+  x11vnc \
+  git \
+  redis-server \
+  wget \
+  unzip \
+  tmux \
+  openssh-client \
+  net-tools
 
 # Copy files
 COPY --from=setup /root/ .
@@ -79,5 +87,62 @@ ENV IBC_PATH /root/ibc
 ENV IBC_INI /root/ibc/config.ini
 ENV TWOFA_TIMEOUT_ACTION exit
 
+# TBOT: Install Python 3.9 and venv
+RUN apt-get install -y software-properties-common && \
+    add-apt-repository -y ppa:deadsnakes/ppa
+
+RUN apt-get install -y python3.9 python3.9-venv python3.9-dev python3.9-distutils python3-pip
+# TBOT: Set python3.9 as a default python3
+RUN rm /usr/bin/python3
+RUN ln -s /usr/bin/python3.9 /usr/bin/python3
+
+# TBOT: Create a non-root user and set its home directory
+RUN useradd -m tbot
+
+# TBOT: Set the working directory to the user's home directory
+WORKDIR /home/tbot
+
+# TBOT: copy environment variables
+COPY ./tbot/tbot_run.sh /home/tbot/tbot_run.sh
+RUN chmod a+x /home/tbot/tbot_run.sh
+
+# TBOT: Copy SSH keys into the container
+COPY ./tbot/id_rsa /home/tbot/.ssh/id_rsa
+COPY ./tbot/id_rsa.pub /home/tbot/.ssh/id_rsa.pub
+
+# TBOT: Set the ownership of the .ssh directory to the 'tbot' user
+RUN chown -R tbot:tbot /home/tbot/.ssh
+
+# TBOT: Install common python libraries for Tradingboat globally
+RUN pip install libtmux
+RUN pip install loguru
+
+# TBOT: Configure Git to use SSH keys
+RUN chmod 600 /home/tbot/.ssh/id_rsa && \
+    chmod 644 /home/tbot/.ssh/id_rsa.pub && \
+    ssh-keyscan github.com > /home/tbot/.ssh/known_hosts && \
+    git config --global user.email "you@example.com" && \
+    git config --global user.name "Your Name" && \
+    git config --global core.sshCommand "ssh -i /home/tbot/.ssh/id_rsa -o StrictHostKeyChecking=no"
+
+# TBOT: create and activate the virtual environment
+RUN python3.9 -m venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
+RUN . /opt/venv/bin/activate
+
+RUN git clone git@github.com:PlusGenie/tbot-tradingboat.git /home/tbot/develop/github/tbot-tradingboat
+WORKDIR /home/tbot/develop/github/tbot-tradingboat
+# Install dependencies in the virtual environment
+RUN pip install -r requirements.txt
+RUN pip install -e .
+RUN chmod a+x /home/tbot/develop/github/tbot-tradingboat/tbottmux/*.sh
+
+RUN git clone https://github.com/PlusGenie/tradingview-webhooks-bot.git /home/tbot/develop/github/tradingview-webhooks-bot
+WORKDIR /home/tbot/develop/github/tradingview-webhooks-bot/src
+# Install dependencies in the virtual environment
+RUN pip install -r requirements.txt
+# TBOT: Set the default directory
+WORKDIR /home/tbot/develop/github/tbot-tradingboat
+
 # Start run script
-CMD ["/root/scripts/run.sh"]
+CMD ["/home/tbot/tbot_run.sh"]
