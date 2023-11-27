@@ -6,6 +6,8 @@ services:
     container_name: tbot-on-tradingboat
     build:
       context: ./stable
+      args:
+        TBOT_TRADINGBOAT_GIT_REPO: ${TBOT_TRADINGBOAT_GIT_REPO:-https://github.com/PlusGenie/tbot-tradingboat.git}
     environment:
       TVWB_UNIQUE_KEY: ${TVWB_UNIQUE_KEY:-}
       TVWB_HTTPS_PORT: ${TVWB_HTTPS_PORT:-5000}
